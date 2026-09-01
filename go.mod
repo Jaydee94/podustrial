@@ -3,6 +3,7 @@ module github.com/Jaydee94/podustrial
 go 1.22.0
 
 require (
+	github.com/gorilla/websocket v1.5.3
 	k8s.io/api v0.31.0
 	k8s.io/apimachinery v0.31.0
 	k8s.io/client-go v0.31.0
