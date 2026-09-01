@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 
 	"github.com/Jaydee94/podustrial/internal/k8s"
@@ -17,7 +18,8 @@ func NewServer(k8sClient *k8s.Client) *Server {
 
 func (s *Server) HandleHealthz(w http.ResponseWriter, r *http.Request) {
 	if err := s.k8sClient.Healthy(r.Context()); err != nil {
-		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		log.Printf("healthz: cluster unreachable: %v", err)
+		http.Error(w, "cluster unreachable", http.StatusServiceUnavailable)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -35,7 +37,8 @@ func (s *Server) HandleSpawnAction(w http.ResponseWriter, r *http.Request) {
 	}
 	pod, err := s.k8sClient.SpawnContainer(r.Context(), req)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Printf("spawn-container: id=%q: %v", req.ID, err)
+		http.Error(w, "failed to spawn container", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
