@@ -67,7 +67,7 @@ func (w *Watcher) Run(ctx context.Context) error {
 
 	factoryInformers.Start(ctx.Done())
 	if !cache.WaitForCacheSync(ctx.Done(), podInformer.HasSynced) {
-		return context.Canceled
+		return ctx.Err()
 	}
 	send(factory.NewClusterStatusEvent(factory.ClusterStatusOK))
 	<-ctx.Done()
