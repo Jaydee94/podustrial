@@ -30,17 +30,23 @@ func (w *Watcher) Run(ctx context.Context) error {
 		}),
 	)
 	podInformer := factoryInformers.Core().V1().Pods().Informer()
+	send := func(ev factory.Event) {
+		select {
+		case w.out <- ev:
+		case <-ctx.Done():
+		}
+	}
 	podInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			pod, ok := obj.(*corev1.Pod)
 			if ok {
-				w.out <- factory.PodEventToFactoryEvent(factory.EventMachineAdded, pod)
+				send(factory.PodEventToFactoryEvent(factory.EventMachineAdded, pod))
 			}
 		},
 		UpdateFunc: func(_, newObj interface{}) {
 			pod, ok := newObj.(*corev1.Pod)
 			if ok {
-				w.out <- factory.PodEventToFactoryEvent(factory.EventMachineUpdated, pod)
+				send(factory.PodEventToFactoryEvent(factory.EventMachineUpdated, pod))
 			}
 		},
 		DeleteFunc: func(obj interface{}) {
@@ -55,7 +61,7 @@ func (w *Watcher) Run(ctx context.Context) error {
 					return
 				}
 			}
-			w.out <- factory.PodEventToFactoryEvent(factory.EventMachineRemoved, pod)
+			send(factory.PodEventToFactoryEvent(factory.EventMachineRemoved, pod))
 		},
 	})
 
@@ -63,7 +69,7 @@ func (w *Watcher) Run(ctx context.Context) error {
 	if !cache.WaitForCacheSync(ctx.Done(), podInformer.HasSynced) {
 		return context.Canceled
 	}
-	w.out <- factory.NewClusterStatusEvent(factory.ClusterStatusOK)
+	send(factory.NewClusterStatusEvent(factory.ClusterStatusOK))
 	<-ctx.Done()
 	return ctx.Err()
 }

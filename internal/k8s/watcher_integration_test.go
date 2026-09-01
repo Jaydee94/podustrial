@@ -19,15 +19,28 @@ func TestWatcher_EmitsEventForNewManagedPod(t *testing.T) {
 	w := NewWatcher(c, events)
 	go w.Run(ctx)
 
-	// wait for initial sync status event
-	select {
-	case ev := <-events:
-		if ev.Type != factory.EventClusterStatus {
-			t.Fatalf("expected initial cluster_status event, got %+v", ev)
+	// Wait for the initial sync status event. Pre-existing managed pods left over
+	// from other tests sharing the "default" namespace may emit machine_added/updated
+	// events before or interleaved with it, so skip past those instead of asserting
+	// the very first event is cluster_status.
+	waitFor := func(deadline time.Duration, match func(factory.Event) bool) factory.Event {
+		t.Helper()
+		timeout := time.After(deadline)
+		for {
+			select {
+			case ev := <-events:
+				if match(ev) {
+					return ev
+				}
+			case <-timeout:
+				t.Fatal("timed out waiting for expected event")
+			}
 		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for initial cluster_status event")
 	}
+
+	waitFor(5*time.Second, func(ev factory.Event) bool {
+		return ev.Type == factory.EventClusterStatus
+	})
 
 	pod, err := c.SpawnContainer(ctx, SpawnContainerRequest{ID: "watch-1"})
 	if err != nil {
@@ -35,12 +48,7 @@ func TestWatcher_EmitsEventForNewManagedPod(t *testing.T) {
 	}
 	defer c.DeletePod(context.Background(), pod.Name)
 
-	select {
-	case ev := <-events:
-		if ev.Type != factory.EventMachineAdded || ev.Machine == nil || ev.Machine.ID != pod.Name {
-			t.Fatalf("expected machine_added for %s, got %+v", pod.Name, ev)
-		}
-	case <-time.After(10 * time.Second):
-		t.Fatal("timed out waiting for machine_added event")
-	}
+	waitFor(10*time.Second, func(ev factory.Event) bool {
+		return ev.Type == factory.EventMachineAdded && ev.Machine != nil && ev.Machine.ID == pod.Name
+	})
 }
