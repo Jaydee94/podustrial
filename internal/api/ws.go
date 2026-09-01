@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"sync"
 
 	"github.com/gorilla/websocket"
@@ -11,8 +12,20 @@ import (
 	"github.com/Jaydee94/podustrial/internal/factory"
 )
 
+// The frontend is embedded into the same Go binary and served from the same
+// origin as this API (spec: single local process/port), so a same-origin
+// check is sufficient here and needs no separate allowlist config. Requests
+// without an Origin header (non-browser clients, e.g. tests or CLI tools)
+// are allowed since they can't be a cross-site browser attack.
 var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool { return true },
+	CheckOrigin: func(r *http.Request) bool {
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			return true
+		}
+		u, err := url.Parse(origin)
+		return err == nil && u.Host == r.Host
+	},
 }
 
 type Hub struct {
