@@ -27,7 +27,14 @@ var upgrader = websocket.Upgrader{
 			return true
 		}
 		u, err := url.Parse(origin)
-		return err == nil && u.Host == r.Host
+		if err != nil || u.Host != r.Host {
+			return false
+		}
+		expectedScheme := "http"
+		if r.TLS != nil {
+			expectedScheme = "https"
+		}
+		return u.Scheme == expectedScheme
 	},
 }
 
@@ -44,27 +51,36 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.ServeWS(w, r)
 }
 
+// maxClientMessageSize bounds incoming frame size. ServeWS never acts on
+// client payloads (it only reads to detect disconnects), so this just
+// prevents a client from forcing large allocations via ReadMessage.
+const maxClientMessageSize = 512
+
 func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return
 	}
+	conn.SetReadLimit(maxClientMessageSize)
+
 	h.mu.Lock()
 	h.clients[conn] = struct{}{}
 	h.mu.Unlock()
 
-	defer func() {
-		h.mu.Lock()
-		delete(h.clients, conn)
-		h.mu.Unlock()
-		conn.Close()
-	}()
+	defer h.remove(conn)
 
 	for {
 		if _, _, err := conn.ReadMessage(); err != nil {
 			return
 		}
 	}
+}
+
+func (h *Hub) remove(conn *websocket.Conn) {
+	h.mu.Lock()
+	delete(h.clients, conn)
+	h.mu.Unlock()
+	conn.Close()
 }
 
 func (h *Hub) Broadcast(event factory.Event) {
@@ -84,7 +100,9 @@ func (h *Hub) Broadcast(event factory.Event) {
 	// deadline bounds how long a single stuck client can delay this call.
 	for _, conn := range conns {
 		conn.SetWriteDeadline(time.Now().Add(writeTimeout))
-		conn.WriteMessage(websocket.TextMessage, data)
+		if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
+			h.remove(conn)
+		}
 	}
 }
 

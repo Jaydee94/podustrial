@@ -54,6 +54,6 @@ func (s *Server) Routes() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.HandleHealthz)
 	mux.HandleFunc("POST /api/actions/spawn-container", s.HandleSpawnAction)
-	mux.HandleFunc("/ws", s.hub.ServeWS)
+	mux.HandleFunc("GET /ws", s.hub.ServeWS)
 	return mux
 }
