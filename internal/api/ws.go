@@ -1,0 +1,75 @@
+package api
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"sync"
+
+	"github.com/gorilla/websocket"
+
+	"github.com/Jaydee94/podustrial/internal/factory"
+)
+
+var upgrader = websocket.Upgrader{
+	CheckOrigin: func(r *http.Request) bool { return true },
+}
+
+type Hub struct {
+	mu      sync.Mutex
+	clients map[*websocket.Conn]struct{}
+}
+
+func NewHub() *Hub {
+	return &Hub{clients: make(map[*websocket.Conn]struct{})}
+}
+
+func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	h.ServeWS(w, r)
+}
+
+func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request) {
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		return
+	}
+	h.mu.Lock()
+	h.clients[conn] = struct{}{}
+	h.mu.Unlock()
+
+	defer func() {
+		h.mu.Lock()
+		delete(h.clients, conn)
+		h.mu.Unlock()
+		conn.Close()
+	}()
+
+	for {
+		if _, _, err := conn.ReadMessage(); err != nil {
+			return
+		}
+	}
+}
+
+func (h *Hub) Broadcast(event factory.Event) {
+	data, err := json.Marshal(event)
+	if err != nil {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for conn := range h.clients {
+		conn.WriteMessage(websocket.TextMessage, data)
+	}
+}
+
+func (h *Hub) Run(ctx context.Context, events <-chan factory.Event) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case ev := <-events:
+			h.Broadcast(ev)
+		}
+	}
+}

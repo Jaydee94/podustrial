@@ -17,7 +17,7 @@ import (
 func newTestServer(t *testing.T) *Server {
 	t.Helper()
 	client := k8s.NewFakeClient(fake.NewSimpleClientset(), "default")
-	return NewServer(client)
+	return NewServer(client, NewHub())
 }
 
 func TestHandleHealthz_ClusterReachable_ReturnsOK(t *testing.T) {

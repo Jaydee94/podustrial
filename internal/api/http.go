@@ -10,10 +10,11 @@ import (
 
 type Server struct {
 	k8sClient *k8s.Client
+	hub       *Hub
 }
 
-func NewServer(k8sClient *k8s.Client) *Server {
-	return &Server{k8sClient: k8sClient}
+func NewServer(k8sClient *k8s.Client, hub *Hub) *Server {
+	return &Server{k8sClient: k8sClient, hub: hub}
 }
 
 func (s *Server) HandleHealthz(w http.ResponseWriter, r *http.Request) {
@@ -50,5 +51,6 @@ func (s *Server) Routes() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.HandleHealthz)
 	mux.HandleFunc("POST /api/actions/spawn-container", s.HandleSpawnAction)
+	mux.HandleFunc("/ws", s.hub.ServeWS)
 	return mux
 }
