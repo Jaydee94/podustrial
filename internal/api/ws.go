@@ -39,12 +39,16 @@ var upgrader = websocket.Upgrader{
 }
 
 type Hub struct {
-	mu      sync.Mutex
-	clients map[*websocket.Conn]struct{}
+	mu sync.Mutex
+	// clients maps each connection to its own write-mutex: gorilla/websocket
+	// only supports one concurrent writer per connection, and Broadcast must
+	// serialize writes to the same conn even if called from multiple
+	// goroutines.
+	clients map[*websocket.Conn]*sync.Mutex
 }
 
 func NewHub() *Hub {
-	return &Hub{clients: make(map[*websocket.Conn]struct{})}
+	return &Hub{clients: make(map[*websocket.Conn]*sync.Mutex)}
 }
 
 func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -64,7 +68,7 @@ func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request) {
 	conn.SetReadLimit(maxClientMessageSize)
 
 	h.mu.Lock()
-	h.clients[conn] = struct{}{}
+	h.clients[conn] = &sync.Mutex{}
 	h.mu.Unlock()
 
 	defer h.remove(conn)
@@ -89,18 +93,23 @@ func (h *Hub) Broadcast(event factory.Event) {
 		return
 	}
 	h.mu.Lock()
-	conns := make([]*websocket.Conn, 0, len(h.clients))
-	for conn := range h.clients {
-		conns = append(conns, conn)
+	conns := make(map[*websocket.Conn]*sync.Mutex, len(h.clients))
+	for conn, wmu := range h.clients {
+		conns[conn] = wmu
 	}
 	h.mu.Unlock()
 
-	// Write outside the lock so a slow/unresponsive client can't block
+	// Write outside h.mu so a slow/unresponsive client can't block
 	// registration/unregistration or broadcasts to other clients; the
 	// deadline bounds how long a single stuck client can delay this call.
-	for _, conn := range conns {
+	// Each connection's own write-mutex serializes concurrent writers, since
+	// gorilla/websocket only supports one writer per connection at a time.
+	for conn, wmu := range conns {
+		wmu.Lock()
 		conn.SetWriteDeadline(time.Now().Add(writeTimeout))
-		if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
+		err := conn.WriteMessage(websocket.TextMessage, data)
+		wmu.Unlock()
+		if err != nil {
 			h.remove(conn)
 		}
 	}
