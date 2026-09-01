@@ -16,12 +16,48 @@ const STATUS_COLOR: Record<MachineStatus, number> = {
   failed: 0xe53935,
 };
 
+const SLOT_START_X = 60;
+const SLOT_Y = 60;
+const SLOT_SPACING = 70;
+
+/**
+ * Assigns each machine id a permanent, unique horizontal slot the first time
+ * it's seen. Slots are never reused across different ids — even once a
+ * machine is removed — so rectangles positioned by slot index can never end
+ * up overlapping after add/remove/add cycles. An id that reappears reclaims
+ * its original slot instead of jumping to a new one.
+ */
+export class SlotAllocator {
+  private slots = new Map<string, number>();
+  private next = 0;
+
+  slotFor(id: string): number {
+    let slot = this.slots.get(id);
+    if (slot === undefined) {
+      slot = this.next++;
+      this.slots.set(id, slot);
+    }
+    return slot;
+  }
+}
+
 class PhaserFactoryScene extends Phaser.Scene implements FactoryScene {
   private machines = new Map<string, Machine>();
   private sprites = new Map<string, Phaser.GameObjects.Rectangle>();
+  private slots = new SlotAllocator();
 
   constructor() {
     super("factory");
+  }
+
+  // Phaser boots asynchronously, so applyEvent() can run — and in practice
+  // does run — before `this.add` exists (see renderMachine's guard below).
+  // create() fires once the scene is actually ready, and replays every
+  // machine received so far so none of them are silently left unrendered.
+  create(): void {
+    for (const machine of this.machines.values()) {
+      this.renderMachine(machine);
+    }
   }
 
   applyEvent(event: FactoryEvent): void {
@@ -53,12 +89,13 @@ class PhaserFactoryScene extends Phaser.Scene implements FactoryScene {
 
   private renderMachine(machine: Machine): void {
     if (!this.add) {
-      return; // headless test environment without a running Phaser game loop
+      return; // headless test environment / scene not started yet — see create()
     }
-    const index = this.sprites.size;
     let rect = this.sprites.get(machine.id);
     if (!rect) {
-      rect = this.add.rectangle(60 + index * 70, 60, 50, 50, STATUS_COLOR[machine.status]);
+      const slot = this.slots.slotFor(machine.id);
+      const x = SLOT_START_X + slot * SLOT_SPACING;
+      rect = this.add.rectangle(x, SLOT_Y, 50, 50, STATUS_COLOR[machine.status]);
       this.sprites.set(machine.id, rect);
     } else {
       rect.setFillStyle(STATUS_COLOR[machine.status]);
