@@ -31,3 +31,7 @@ func (c *Client) Healthy(ctx context.Context) error {
 	}
 	return nil
 }
+
+func NewFakeClient(cs kubernetes.Interface, namespace string) *Client {
+	return &Client{Clientset: cs, namespace: namespace}
+}
