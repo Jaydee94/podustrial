@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 import { connectFactorySocket, type FactoryEvent } from "./socket";
 
 class FakeWebSocket {
@@ -6,7 +6,9 @@ class FakeWebSocket {
   onmessage: ((ev: { data: string }) => void) | null = null;
   onopen: (() => void) | null = null;
   onclose: (() => void) | null = null;
-  constructor(public url: string) {
+  url: string;
+  constructor(url: string) {
+    this.url = url;
     FakeWebSocket.instances.push(this);
   }
   emit(data: unknown) {
