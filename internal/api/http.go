@@ -14,6 +14,9 @@ type Server struct {
 }
 
 func NewServer(k8sClient *k8s.Client, hub *Hub) *Server {
+	if hub == nil {
+		panic("api: NewServer called with a nil hub")
+	}
 	return &Server{k8sClient: k8sClient, hub: hub}
 }
 

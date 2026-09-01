@@ -6,11 +6,14 @@ import (
 	"net/http"
 	"net/url"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 
 	"github.com/Jaydee94/podustrial/internal/factory"
 )
+
+const writeTimeout = 5 * time.Second
 
 // The frontend is embedded into the same Go binary and served from the same
 // origin as this API (spec: single local process/port), so a same-origin
@@ -70,8 +73,17 @@ func (h *Hub) Broadcast(event factory.Event) {
 		return
 	}
 	h.mu.Lock()
-	defer h.mu.Unlock()
+	conns := make([]*websocket.Conn, 0, len(h.clients))
 	for conn := range h.clients {
+		conns = append(conns, conn)
+	}
+	h.mu.Unlock()
+
+	// Write outside the lock so a slow/unresponsive client can't block
+	// registration/unregistration or broadcasts to other clients; the
+	// deadline bounds how long a single stuck client can delay this call.
+	for _, conn := range conns {
+		conn.SetWriteDeadline(time.Now().Add(writeTimeout))
 		conn.WriteMessage(websocket.TextMessage, data)
 	}
 }
@@ -81,7 +93,10 @@ func (h *Hub) Run(ctx context.Context, events <-chan factory.Event) {
 		select {
 		case <-ctx.Done():
 			return
-		case ev := <-events:
+		case ev, ok := <-events:
+			if !ok {
+				return
+			}
 			h.Broadcast(ev)
 		}
 	}
