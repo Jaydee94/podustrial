@@ -29,6 +29,10 @@ func (s *Server) HandleSpawnAction(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
+	if req.ID == "" {
+		http.Error(w, "id must not be empty", http.StatusBadRequest)
+		return
+	}
 	pod, err := s.k8sClient.SpawnContainer(r.Context(), req)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)

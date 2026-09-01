@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
 
@@ -59,7 +58,9 @@ func TestHandleSpawnAction_ValidRequest_CreatesPod(t *testing.T) {
 	if pod.Labels[k8s.ManagedByLabel] != k8s.ManagedByValue {
 		t.Errorf("pod missing managed-by label")
 	}
-	_ = corev1.Pod{}
+	if len(pod.Spec.Containers) != 1 || pod.Spec.Containers[0].Image != "busybox:1.36" {
+		t.Errorf("unexpected containers: %+v", pod.Spec.Containers)
+	}
 }
 
 func TestHandleSpawnAction_EmptyBody_ReturnsBadRequest(t *testing.T) {
@@ -71,5 +72,17 @@ func TestHandleSpawnAction_EmptyBody_ReturnsBadRequest(t *testing.T) {
 
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+func TestHandleSpawnAction_EmptyID_ReturnsBadRequest(t *testing.T) {
+	s := newTestServer(t)
+	req := httptest.NewRequest(http.MethodPost, "/api/actions/spawn-container", strings.NewReader(`{"id":""}`))
+	rec := httptest.NewRecorder()
+
+	s.Routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d, body: %s", rec.Code, http.StatusBadRequest, rec.Body.String())
 	}
 }
