@@ -1,0 +1,141 @@
+:root {
+  color-scheme: light;
+}
+
+body {
+  margin: 0;
+  background: #e7e5e0;
+  font-family: "IBM Plex Sans", system-ui, sans-serif;
+  color: #1d1c19;
+}
+
+@keyframes werkbankPodPulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.werkbank {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 32px 24px 56px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.werkbank-logo-icon {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(3, 1fr);
+  gap: 3px;
+  padding: 5px;
+  box-sizing: border-box;
+  flex: none;
+}
+
+.werkbank-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.werkbank-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.werkbank-wordmark {
+  font-family: "Space Grotesk", sans-serif;
+  font-weight: 700;
+  font-size: 20px;
+  letter-spacing: -0.01em;
+  color: #21201c;
+}
+
+.werkbank-power {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  color: #4a473f;
+}
+
+.werkbank-power-dot {
+  width: 8px;
+  height: 8px;
+  background: #3f6478;
+}
+
+.werkbank-panel {
+  border: 1px solid #d8d2c6;
+  background: #f4f1ea;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.werkbank-panel-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.werkbank-panel-head h2 {
+  margin: 0;
+  font-family: "Archivo", sans-serif;
+  font-weight: 700;
+  font-size: 16px;
+  color: #21201c;
+}
+
+.werkbank-count {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  color: #8e8779;
+}
+
+.werkbank-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 10px;
+  min-height: 76px;
+  background-image: repeating-linear-gradient(0deg, #ede7da 0 1px, transparent 1px 19px),
+    repeating-linear-gradient(90deg, #ede7da 0 1px, transparent 1px 19px);
+}
+
+.werkbank-machine {
+  border: 1px solid #dad2be;
+  background: #fffdf8;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.werkbank-machine-chip {
+  width: 16px;
+  height: 16px;
+}
+
+.werkbank-machine-label {
+  font-family: "Space Grotesk", sans-serif;
+  font-weight: 500;
+  font-size: 12px;
+  color: #21201c;
+  word-break: break-all;
+}
+
+.werkbank-machine-status {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+}

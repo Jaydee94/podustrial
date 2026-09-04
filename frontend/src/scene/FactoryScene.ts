@@ -1,93 +1,164 @@
-// Phaser's ESM build (dist/phaser.esm.js — see the "phaser" alias in
-// vite.config.ts) has no default export, only named ones; a namespace
-// import is what actually resolves against it.
-import * as Phaser from "phaser";
-import type { FactoryEvent, Machine, MachineStatus } from "../net/socket";
+import type { ClusterStatus, FactoryEvent, Machine, MachineStatus } from "../net/socket";
 
 export interface FactoryScene {
   applyEvent(event: FactoryEvent): void;
   getMachineCount(): number;
   getMachineStatus(id: string): MachineStatus | undefined;
-  /** Tears down the underlying Phaser game loop/canvas. Safe to call once. */
+  /** Tears down the rendered scene and removes it from its container. Safe to call once. */
   destroy(): void;
 }
 
-const STATUS_COLOR: Record<MachineStatus, number> = {
-  pending: 0x999999,
-  running: 0x4caf50,
-  failed: 0xe53935,
+const STATUS_LABEL: Record<MachineStatus, string> = {
+  pending: "läuft an",
+  running: "läuft",
+  failed: "ausgefallen",
 };
 
-const SLOT_START_X = 60;
-const SLOT_Y = 60;
-const SLOT_SPACING = 70;
+const STATUS_COLOR: Record<MachineStatus, string> = {
+  pending: "#B58A2B",
+  running: "#3F6478",
+  failed: "#B5451C",
+};
 
-/**
- * Assigns each machine id a permanent, unique horizontal slot the first time
- * it's seen. Slots are never reused across different ids — even once a
- * machine is removed — so rectangles positioned by slot index can never end
- * up overlapping after add/remove/add cycles. An id that reappears reclaims
- * its original slot instead of jumping to a new one.
- */
-export class SlotAllocator {
-  private slots = new Map<string, number>();
-  private next = 0;
+const STATUS_BORDER: Record<MachineStatus, string> = {
+  pending: "#E0D3B0",
+  running: "#C6D2D9",
+  failed: "#E8C4B4",
+};
 
-  slotFor(id: string): number {
-    let slot = this.slots.get(id);
-    if (slot === undefined) {
-      slot = this.next++;
-      this.slots.set(id, slot);
-    }
-    return slot;
+function buildLogoIcon(sizePx: number, cellBg: string, accentBg: string, frameBg: string): HTMLElement {
+  const icon = document.createElement("div");
+  icon.className = "werkbank-logo-icon";
+  icon.style.width = `${sizePx}px`;
+  icon.style.height = `${sizePx}px`;
+  icon.style.background = frameBg;
+  // Anti-diagonal (top-right to bottom-left) picked out in the accent color —
+  // the same 3x3 pattern used across every logo variant in the source design.
+  const accentCells = new Set([2, 4, 6]);
+  for (let i = 0; i < 9; i++) {
+    const cell = document.createElement("div");
+    cell.style.background = accentCells.has(i) ? accentBg : cellBg;
+    icon.appendChild(cell);
   }
+  return icon;
 }
 
-class PhaserFactoryScene extends Phaser.Scene implements FactoryScene {
+function buildShell(container: HTMLElement): {
+  root: HTMLElement;
+  grid: HTMLElement;
+  countEl: HTMLElement;
+  powerDot: HTMLElement;
+  powerLabel: HTMLElement;
+} {
+  const root = document.createElement("div");
+  root.className = "werkbank";
+
+  const topbar = document.createElement("div");
+  topbar.className = "werkbank-topbar";
+
+  const brand = document.createElement("div");
+  brand.className = "werkbank-brand";
+  brand.appendChild(buildLogoIcon(28, "#6B7C85", "#B5451C", "#21201C"));
+  const wordmark = document.createElement("span");
+  wordmark.className = "werkbank-wordmark";
+  wordmark.textContent = "podustrial";
+  brand.appendChild(wordmark);
+  topbar.appendChild(brand);
+
+  const power = document.createElement("div");
+  power.className = "werkbank-power";
+  const powerDot = document.createElement("span");
+  powerDot.className = "werkbank-power-dot";
+  powerDot.dataset.role = "power-dot";
+  const powerLabel = document.createElement("span");
+  powerLabel.dataset.role = "power-label";
+  power.append(powerDot, powerLabel);
+  topbar.appendChild(power);
+
+  root.appendChild(topbar);
+
+  const panel = document.createElement("section");
+  panel.className = "werkbank-panel";
+
+  const panelHead = document.createElement("div");
+  panelHead.className = "werkbank-panel-head";
+  const heading = document.createElement("h2");
+  heading.textContent = "Werk";
+  const countEl = document.createElement("span");
+  countEl.className = "werkbank-count";
+  countEl.dataset.role = "count";
+  panelHead.append(heading, countEl);
+  panel.appendChild(panelHead);
+
+  const grid = document.createElement("div");
+  grid.className = "werkbank-grid";
+  panel.appendChild(grid);
+
+  root.appendChild(panel);
+  container.appendChild(root);
+
+  return { root, grid, countEl, powerDot, powerLabel };
+}
+
+function buildMachineCard(id: string): { card: HTMLElement; chip: HTMLElement; statusLine: HTMLElement } {
+  const card = document.createElement("div");
+  card.className = "werkbank-machine";
+  card.dataset.machineId = id;
+
+  const chip = document.createElement("div");
+  chip.className = "werkbank-machine-chip";
+
+  const label = document.createElement("div");
+  label.className = "werkbank-machine-label";
+  label.textContent = id;
+
+  const statusLine = document.createElement("div");
+  statusLine.className = "werkbank-machine-status";
+
+  card.append(chip, label, statusLine);
+  return { card, chip, statusLine };
+}
+
+class WerkbankScene implements FactoryScene {
   private machines = new Map<string, Machine>();
-  private sprites = new Map<string, Phaser.GameObjects.Rectangle>();
-  private slots = new SlotAllocator();
-  // Set by createFactoryScene once the game is constructed — the scene
-  // needs a handle back to it so callers can tear both down via destroy().
-  private phaserGame?: Phaser.Game;
+  private cards = new Map<string, { card: HTMLElement; chip: HTMLElement; statusLine: HTMLElement }>();
+  private root: HTMLElement;
+  private grid: HTMLElement;
+  private countEl: HTMLElement;
+  private powerDot: HTMLElement;
+  private powerLabel: HTMLElement;
 
-  constructor() {
-    super("factory");
-  }
-
-  setGame(game: Phaser.Game): void {
-    this.phaserGame = game;
-  }
-
-  destroy(): void {
-    this.phaserGame?.destroy(true);
-  }
-
-  // Phaser boots asynchronously, so applyEvent() can run — and in practice
-  // does run — before `this.add` exists (see renderMachine's guard below).
-  // create() fires once the scene is actually ready, and replays every
-  // machine received so far so none of them are silently left unrendered.
-  create(): void {
-    for (const machine of this.machines.values()) {
-      this.renderMachine(machine);
-    }
+  constructor(container: HTMLElement) {
+    const shell = buildShell(container);
+    this.root = shell.root;
+    this.grid = shell.grid;
+    this.countEl = shell.countEl;
+    this.powerDot = shell.powerDot;
+    this.powerLabel = shell.powerLabel;
+    this.setClusterStatus("ok");
+    this.updateCount();
   }
 
   applyEvent(event: FactoryEvent): void {
-    if (!event.machine) {
-      return;
-    }
-    const machine = event.machine;
     switch (event.type) {
       case "machine_added":
       case "machine_updated":
-        this.machines.set(machine.id, machine);
-        this.renderMachine(machine);
+        if (event.machine) {
+          this.machines.set(event.machine.id, event.machine);
+          this.renderMachine(event.machine);
+          this.updateCount();
+        }
         break;
       case "machine_removed":
-        this.machines.delete(machine.id);
-        this.sprites.get(machine.id)?.destroy();
-        this.sprites.delete(machine.id);
+        if (event.machine) {
+          this.machines.delete(event.machine.id);
+          this.cards.get(event.machine.id)?.card.remove();
+          this.cards.delete(event.machine.id);
+          this.updateCount();
+        }
+        break;
+      case "cluster_status":
+        this.setClusterStatus(event.clusterStatus ?? "ok");
         break;
     }
   }
@@ -100,31 +171,37 @@ class PhaserFactoryScene extends Phaser.Scene implements FactoryScene {
     return this.machines.get(id)?.status;
   }
 
+  destroy(): void {
+    this.root.remove();
+  }
+
   private renderMachine(machine: Machine): void {
-    if (!this.add) {
-      return; // headless test environment / scene not started yet — see create()
+    let entry = this.cards.get(machine.id);
+    if (!entry) {
+      entry = buildMachineCard(machine.id);
+      this.cards.set(machine.id, entry);
+      this.grid.appendChild(entry.card);
     }
-    let rect = this.sprites.get(machine.id);
-    if (!rect) {
-      const slot = this.slots.slotFor(machine.id);
-      const x = SLOT_START_X + slot * SLOT_SPACING;
-      rect = this.add.rectangle(x, SLOT_Y, 50, 50, STATUS_COLOR[machine.status]);
-      this.sprites.set(machine.id, rect);
-    } else {
-      rect.setFillStyle(STATUS_COLOR[machine.status]);
-    }
+    entry.card.dataset.status = machine.status;
+    entry.chip.style.background = STATUS_COLOR[machine.status];
+    entry.chip.style.animation = machine.status === "pending" ? "werkbankPodPulse 1.1s ease-in-out infinite" : "none";
+    entry.card.style.borderColor = STATUS_BORDER[machine.status];
+    entry.statusLine.textContent = STATUS_LABEL[machine.status];
+    entry.statusLine.style.color = STATUS_COLOR[machine.status];
+  }
+
+  private updateCount(): void {
+    const n = this.machines.size;
+    this.countEl.textContent = `${n} Maschine${n === 1 ? "" : "n"}`;
+  }
+
+  private setClusterStatus(status: ClusterStatus): void {
+    const failure = status === "stromausfall";
+    this.powerDot.style.background = failure ? "#B5451C" : "#3F6478";
+    this.powerLabel.textContent = failure ? "Werk: Störung" : "Werk: läuft";
   }
 }
 
 export function createFactoryScene(container: HTMLElement): FactoryScene {
-  const scene = new PhaserFactoryScene();
-  const game = new Phaser.Game({
-    type: Phaser.AUTO,
-    width: 800,
-    height: 400,
-    parent: container,
-    scene,
-  });
-  scene.setGame(game);
-  return scene;
+  return new WerkbankScene(container);
 }
