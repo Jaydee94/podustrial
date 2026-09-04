@@ -1,8 +1,12 @@
 package chaos
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"log"
 	"math/rand"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -29,22 +33,41 @@ func (f *fakeClock) tick() {
 }
 
 type fakeDeleter struct {
-	mu      sync.Mutex
-	names   []string
-	deleted []string
+	mu        sync.Mutex
+	names     []string
+	deleted   []string
+	listErr   error
+	deleteErr error
 }
 
 func (f *fakeDeleter) ListManagedPodNames(ctx context.Context) ([]string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.listErr != nil {
+		return nil, f.listErr
+	}
 	return append([]string(nil), f.names...), nil
 }
 
 func (f *fakeDeleter) DeletePod(ctx context.Context, name string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.deleteErr != nil {
+		return f.deleteErr
+	}
 	f.deleted = append(f.deleted, name)
 	return nil
+}
+
+// captureLog redirects the package-level logger for the duration of the test
+// and restores it on cleanup, so tests can assert on what got logged.
+func captureLog(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var buf bytes.Buffer
+	prev := log.Writer()
+	log.SetOutput(&buf)
+	t.Cleanup(func() { log.SetOutput(prev) })
+	return &buf
 }
 
 func TestService_Disabled_NeverDeletes(t *testing.T) {
@@ -172,5 +195,51 @@ func TestNewService_NonPositiveIntervalDisablesService(t *testing.T) {
 	defer deleter.mu.Unlock()
 	if len(deleter.deleted) != 0 {
 		t.Errorf("expected non-positive interval to disable the service, got %v", deleter.deleted)
+	}
+}
+
+func TestService_ListError_LogsAndContinues(t *testing.T) {
+	// Regression: ListManagedPodNames' error was silently discarded, so an
+	// RBAC misconfiguration or API timeout produced no observable signal
+	// anywhere — chaos would just quietly never delete anything.
+	buf := captureLog(t)
+	clock := newFakeClock()
+	deleter := &fakeDeleter{listErr: errors.New("rbac denied")}
+	s := NewService(Config{Enabled: true, Interval: time.Millisecond, Probability: 1.0}, deleter, clock, rand.New(rand.NewSource(1)))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		s.Run(ctx)
+		close(done)
+	}()
+	clock.tick()
+	cancel()
+	<-done
+
+	if !strings.Contains(buf.String(), "rbac denied") {
+		t.Errorf("expected the list error to be logged, got log output: %q", buf.String())
+	}
+}
+
+func TestService_DeleteError_LogsAndContinues(t *testing.T) {
+	// Regression: DeletePod's error was silently discarded the same way.
+	buf := captureLog(t)
+	clock := newFakeClock()
+	deleter := &fakeDeleter{names: []string{"pod-a"}, deleteErr: errors.New("pod already gone")}
+	s := NewService(Config{Enabled: true, Interval: time.Millisecond, Probability: 1.0}, deleter, clock, rand.New(rand.NewSource(1)))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		s.Run(ctx)
+		close(done)
+	}()
+	clock.tick()
+	cancel()
+	<-done
+
+	if !strings.Contains(buf.String(), "pod already gone") {
+		t.Errorf("expected the delete error to be logged, got log output: %q", buf.String())
 	}
 }

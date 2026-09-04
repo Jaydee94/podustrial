@@ -2,6 +2,7 @@ package chaos
 
 import (
 	"context"
+	"log"
 	"math/rand"
 	"time"
 )
@@ -63,11 +64,17 @@ func (s *Service) Run(ctx context.Context) {
 				continue
 			}
 			names, err := s.deleter.ListManagedPodNames(ctx)
-			if err != nil || len(names) == 0 {
+			if err != nil {
+				log.Printf("chaos: list managed pods: %v", err)
+				continue
+			}
+			if len(names) == 0 {
 				continue
 			}
 			target := names[s.rng.Intn(len(names))]
-			s.deleter.DeletePod(ctx, target)
+			if err := s.deleter.DeletePod(ctx, target); err != nil {
+				log.Printf("chaos: delete pod %q: %v", target, err)
+			}
 		}
 	}
 }
