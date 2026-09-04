@@ -9,9 +9,6 @@
     "preview": "vite preview",
     "test": "vitest run"
   },
-  "dependencies": {
-    "phaser": "3.87.0"
-  },
   "devDependencies": {
     "jsdom": "^25.0.1",
     "typescript": "~6.0.2",

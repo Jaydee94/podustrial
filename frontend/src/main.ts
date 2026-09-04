@@ -1,3 +1,4 @@
+import "./styles.css";
 import { connectFactorySocket } from "./net/socket";
 import { createFactoryScene } from "./scene/FactoryScene";
 

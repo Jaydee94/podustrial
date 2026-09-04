@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
-import { createFactoryScene, SlotAllocator } from "./FactoryScene";
+import { describe, it, expect, beforeEach } from "vitest";
+import { createFactoryScene } from "./FactoryScene";
 import type { FactoryEvent } from "../net/socket";
 
 describe("FactoryScene", () => {
@@ -46,88 +46,85 @@ describe("FactoryScene", () => {
     expect(scene.getMachineCount()).toBe(0);
   });
 
-  it("destroy() tears down the underlying Phaser game without throwing", () => {
-    // Regression: createFactoryScene used to discard the Phaser.Game it
-    // constructs, leaving callers (and tests) with no way to stop its
-    // render loop / RAF handles deterministically.
+  it("destroy() removes the rendered scene from the container without throwing", () => {
     const scene = createFactoryScene(container);
+    scene.applyEvent({ type: "machine_added", machine: { id: "m1", status: "running" } });
+
     expect(() => scene.destroy()).not.toThrow();
+    expect(container.children).toHaveLength(0);
   });
 
-  it("replays every tracked machine through renderMachine once create() fires", () => {
-    // Phaser's game boot is async — applyEvent() routinely runs before
-    // this.add exists, so renderMachine() no-ops (see its guard). create()
-    // is Phaser's normal "scene is ready" lifecycle hook; it must replay
-    // whatever was already tracked or those machines are never drawn.
+  it("renders one machine card per machine, colored by status", () => {
     const scene = createFactoryScene(container);
-    const renderSpy = vi.spyOn(scene as unknown as { renderMachine: (m: unknown) => void }, "renderMachine");
-
     scene.applyEvent({ type: "machine_added", machine: { id: "m1", status: "pending" } });
     scene.applyEvent({ type: "machine_added", machine: { id: "m2", status: "running" } });
-    renderSpy.mockClear(); // applyEvent() itself already called renderMachine once per event
+    scene.applyEvent({ type: "machine_added", machine: { id: "m3", status: "failed" } });
 
-    (scene as unknown as { create: () => void }).create();
+    const cards = container.querySelectorAll<HTMLElement>("[data-machine-id]");
+    expect(cards).toHaveLength(3);
 
-    expect(renderSpy).toHaveBeenCalledTimes(2);
-    expect(renderSpy).toHaveBeenCalledWith({ id: "m1", status: "pending" });
-    expect(renderSpy).toHaveBeenCalledWith({ id: "m2", status: "running" });
+    const byId = (id: string) =>
+      container.querySelector<HTMLElement>(`[data-machine-id="${id}"]`)!;
+
+    expect(byId("m1").dataset.status).toBe("pending");
+    expect(byId("m2").dataset.status).toBe("running");
+    expect(byId("m3").dataset.status).toBe("failed");
   });
 
-  it("does not replay a machine that was removed before create() fires", () => {
+  it("updates a machine card in place on machine_updated instead of duplicating it", () => {
     const scene = createFactoryScene(container);
-    const renderSpy = vi.spyOn(scene as unknown as { renderMachine: (m: unknown) => void }, "renderMachine");
-
     scene.applyEvent({ type: "machine_added", machine: { id: "m1", status: "pending" } });
-    scene.applyEvent({ type: "machine_removed", machine: { id: "m1", status: "pending" } });
-    renderSpy.mockClear();
+    scene.applyEvent({ type: "machine_updated", machine: { id: "m1", status: "running" } });
 
-    (scene as unknown as { create: () => void }).create();
-
-    expect(renderSpy).not.toHaveBeenCalled();
-  });
-});
-
-describe("SlotAllocator", () => {
-  it("assigns increasing slots to new ids", () => {
-    const slots = new SlotAllocator();
-
-    expect(slots.slotFor("m1")).toBe(0);
-    expect(slots.slotFor("m2")).toBe(1);
-    expect(slots.slotFor("m3")).toBe(2);
+    expect(container.querySelectorAll("[data-machine-id]")).toHaveLength(1);
+    expect(container.querySelector<HTMLElement>('[data-machine-id="m1"]')!.dataset.status).toBe(
+      "running"
+    );
   });
 
-  it("returns the same slot for an id queried again", () => {
-    const slots = new SlotAllocator();
+  it("removes a machine's card from the DOM on machine_removed", () => {
+    const scene = createFactoryScene(container);
+    scene.applyEvent({ type: "machine_added", machine: { id: "m1", status: "running" } });
+    scene.applyEvent({ type: "machine_removed", machine: { id: "m1", status: "running" } });
 
-    expect(slots.slotFor("m1")).toBe(0);
-    slots.slotFor("m2");
-    expect(slots.slotFor("m1")).toBe(0);
+    expect(container.querySelectorAll("[data-machine-id]")).toHaveLength(0);
   });
 
-  it("never reuses a slot for a different id, even after the original id is gone", () => {
-    // Regression: renderMachine used to derive a new sprite's slot from
-    // sprites.size, so removing a machine and then adding a new one could
-    // hand out an already-occupied slot, overlapping an active rectangle.
-    const slots = new SlotAllocator();
+  it("never reuses or reorders a machine's card position, even after other ids are removed and re-added", () => {
+    const scene = createFactoryScene(container);
+    scene.applyEvent({ type: "machine_added", machine: { id: "m1", status: "running" } });
+    scene.applyEvent({ type: "machine_added", machine: { id: "m2", status: "running" } });
+    scene.applyEvent({ type: "machine_removed", machine: { id: "m1", status: "running" } });
+    scene.applyEvent({ type: "machine_added", machine: { id: "m3", status: "pending" } });
 
-    slots.slotFor("m1"); // 0
-    const m2Slot = slots.slotFor("m2"); // 1
-    const m3Slot = slots.slotFor("m3"); // 2
-    // m2 "removed" here — nothing to do on the allocator, it never forgets.
-    const m4Slot = slots.slotFor("m4");
-
-    expect(m4Slot).not.toBe(m2Slot);
-    expect(m4Slot).not.toBe(m3Slot);
-    expect(m4Slot).toBe(3);
+    const ids = Array.from(container.querySelectorAll<HTMLElement>("[data-machine-id]")).map(
+      (el) => el.dataset.machineId
+    );
+    expect(ids).toEqual(["m2", "m3"]);
   });
 
-  it("gives a reappearing id back its original slot", () => {
-    const slots = new SlotAllocator();
+  it("reflects cluster_status ok/stromausfall in the power indicator", () => {
+    const scene = createFactoryScene(container);
+    const dot = () => container.querySelector<HTMLElement>("[data-role='power-dot']")!;
+    const label = () => container.querySelector<HTMLElement>("[data-role='power-label']")!;
 
-    const first = slots.slotFor("m1");
-    slots.slotFor("m2");
-    const again = slots.slotFor("m1");
+    expect(label().textContent).toContain("läuft");
 
-    expect(again).toBe(first);
+    scene.applyEvent({ type: "cluster_status", clusterStatus: "stromausfall" });
+    expect(label().textContent).toContain("Störung");
+    expect(dot().style.background).not.toBe("");
+
+    scene.applyEvent({ type: "cluster_status", clusterStatus: "ok" });
+    expect(label().textContent).not.toContain("Störung");
+  });
+
+  it("shows the current machine count", () => {
+    const scene = createFactoryScene(container);
+    const count = () => container.querySelector<HTMLElement>("[data-role='count']")!.textContent;
+
+    scene.applyEvent({ type: "machine_added", machine: { id: "m1", status: "running" } });
+    scene.applyEvent({ type: "machine_added", machine: { id: "m2", status: "running" } });
+
+    expect(count()).toContain("2");
   });
 });
