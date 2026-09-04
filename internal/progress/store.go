@@ -17,6 +17,13 @@ func Open(path string) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
+	// modernc.org/sqlite doesn't serialize writers on its own: database/sql
+	// will happily open a second connection to the same file under
+	// concurrent load, and that second writer gets SQLITE_BUSY immediately
+	// instead of waiting. Since the server drives the HTTP API and the
+	// WebSocket hub concurrently, pin the pool to a single connection so all
+	// reads/writes are serialized through it.
+	db.SetMaxOpenConns(1)
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS progress (
 		id INTEGER PRIMARY KEY CHECK (id = 1),
 		level INTEGER NOT NULL
@@ -40,6 +47,9 @@ func (s *Store) CurrentLevel(ctx context.Context) (int, error) {
 }
 
 func (s *Store) SetLevel(ctx context.Context, level int) error {
+	if level < 1 {
+		return fmt.Errorf("set level: level must be >= 1, got %d", level)
+	}
 	if _, err := s.db.ExecContext(ctx, `UPDATE progress SET level = ? WHERE id = 1`, level); err != nil {
 		return fmt.Errorf("update level: %w", err)
 	}
