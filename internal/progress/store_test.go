@@ -2,6 +2,7 @@ package progress
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -41,5 +42,19 @@ func TestStore_SetLevel_Persists(t *testing.T) {
 	}
 	if level != 4 {
 		t.Errorf("level = %d, want 4", level)
+	}
+}
+
+func TestStore_Open_ClosesDBOnSchemaError(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "progress.db")
+	// A file that exists but isn't a valid SQLite database makes the
+	// CREATE TABLE step in Open fail deterministically, exercising the
+	// error path that used to return without closing the *sql.DB.
+	if err := os.WriteFile(dbPath, []byte("not a sqlite database"), 0o600); err != nil {
+		t.Fatalf("seed corrupt db file: %v", err)
+	}
+
+	if _, err := Open(dbPath); err == nil {
+		t.Fatal("expected Open to fail against a corrupted database file")
 	}
 }

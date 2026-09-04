@@ -21,9 +21,11 @@ func Open(path string) (*Store, error) {
 		id INTEGER PRIMARY KEY CHECK (id = 1),
 		level INTEGER NOT NULL
 	)`); err != nil {
+		db.Close()
 		return nil, fmt.Errorf("create table: %w", err)
 	}
 	if _, err := db.Exec(`INSERT OR IGNORE INTO progress (id, level) VALUES (1, 1)`); err != nil {
+		db.Close()
 		return nil, fmt.Errorf("seed row: %w", err)
 	}
 	return &Store{db: db}, nil
