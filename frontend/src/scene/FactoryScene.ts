@@ -8,6 +8,8 @@ export interface FactoryScene {
   applyEvent(event: FactoryEvent): void;
   getMachineCount(): number;
   getMachineStatus(id: string): MachineStatus | undefined;
+  /** Tears down the underlying Phaser game loop/canvas. Safe to call once. */
+  destroy(): void;
 }
 
 const STATUS_COLOR: Record<MachineStatus, number> = {
@@ -45,9 +47,20 @@ class PhaserFactoryScene extends Phaser.Scene implements FactoryScene {
   private machines = new Map<string, Machine>();
   private sprites = new Map<string, Phaser.GameObjects.Rectangle>();
   private slots = new SlotAllocator();
+  // Set by createFactoryScene once the game is constructed — the scene
+  // needs a handle back to it so callers can tear both down via destroy().
+  private phaserGame?: Phaser.Game;
 
   constructor() {
     super("factory");
+  }
+
+  setGame(game: Phaser.Game): void {
+    this.phaserGame = game;
+  }
+
+  destroy(): void {
+    this.phaserGame?.destroy(true);
   }
 
   // Phaser boots asynchronously, so applyEvent() can run — and in practice
@@ -105,12 +118,13 @@ class PhaserFactoryScene extends Phaser.Scene implements FactoryScene {
 
 export function createFactoryScene(container: HTMLElement): FactoryScene {
   const scene = new PhaserFactoryScene();
-  new Phaser.Game({
+  const game = new Phaser.Game({
     type: Phaser.AUTO,
     width: 800,
     height: 400,
     parent: container,
     scene,
   });
+  scene.setGame(game);
   return scene;
 }

@@ -46,6 +46,14 @@ describe("FactoryScene", () => {
     expect(scene.getMachineCount()).toBe(0);
   });
 
+  it("destroy() tears down the underlying Phaser game without throwing", () => {
+    // Regression: createFactoryScene used to discard the Phaser.Game it
+    // constructs, leaving callers (and tests) with no way to stop its
+    // render loop / RAF handles deterministically.
+    const scene = createFactoryScene(container);
+    expect(() => scene.destroy()).not.toThrow();
+  });
+
   it("replays every tracked machine through renderMachine once create() fires", () => {
     // Phaser's game boot is async — applyEvent() routinely runs before
     // this.add exists, so renderMachine() no-ops (see its guard). create()
