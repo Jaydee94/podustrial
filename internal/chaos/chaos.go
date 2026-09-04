@@ -35,6 +35,18 @@ type Service struct {
 }
 
 func NewService(cfg Config, deleter Deleter, clock Clock, rng *rand.Rand) *Service {
+	if clock == nil {
+		clock = RealClock()
+	}
+	if rng == nil {
+		rng = rand.New(rand.NewSource(time.Now().UnixNano()))
+	}
+	if cfg.Interval <= 0 {
+		// A non-positive interval would make clock.After fire immediately on
+		// every loop iteration, hot-looping the service. Treat it the same
+		// as disabled rather than trusting config-driven input blindly.
+		cfg.Enabled = false
+	}
 	return &Service{cfg: cfg, deleter: deleter, clock: clock, rng: rng}
 }
 
